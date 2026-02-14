@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard — SmartTrack AI</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+
+<body>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">
+            <div class="logo-icon">🎯</div>
+            <span>Smart<span class="text-gradient">Track</span> AI</span>
+        </a>
+        <div class="navbar-right">
+            <div class="user-info">
+                <span id="studentNameNav">Student</span>
+                <a id="avatarLink" href="#" target="_blank">
+                    <div class="user-avatar-placeholder" id="avatarPlaceholder">S</div>
+                    <img class="user-avatar" id="avatarImg" style="display:none;" alt="Profile">
+                </a>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="logoutBtn">Logout</button>
+        </div>
+    </nav>
+
+    <!-- Dashboard -->
+    <div class="dashboard">
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="dashboard">📊 Dashboard</button>
+            <button class="tab-btn" data-tab="profile">👤 Profile</button>
+            <button class="tab-btn" data-tab="upcoming">📅 Upcoming</button>
+        </div>
+
+        <!-- Tab: Dashboard -->
+        <div class="tab-content active" id="tab-dashboard">
+            <!-- Stat Cards -->
+            <div class="grid grid-4" style="margin-bottom:24px;" id="statCards">
+                <div class="glass-card stat-card stat-primary">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-value" id="overallPct">—</div>
+                    <div class="stat-label">Overall Attendance</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill green" id="overallBar" style="width:0%"></div>
+                    </div>
+                </div>
+                <div class="glass-card stat-card stat-success">
+                    <div class="stat-icon">📚</div>
+                    <div class="stat-value" id="totalClasses">—</div>
+                    <div class="stat-label">Total Classes</div>
+                </div>
+                <div class="glass-card stat-card stat-info">
+                    <div class="stat-icon">📈</div>
+                    <div class="stat-value" id="trendScore">—</div>
+                    <div class="stat-label">7-Day Trend</div>
+                    <div class="stat-badge" id="trendBadge" style="background: var(--info-bg); color: var(--info);">
+                    </div>
+                </div>
+                <div class="glass-card stat-card stat-warning">
+                    <div class="stat-icon">⚠️</div>
+                    <div class="stat-value" id="shortageCount">0</div>
+                    <div class="stat-label">Shortage Subjects</div>
+                </div>
+            </div>
+
+            <!-- Subject-wise Stats -->
+            <div class="glass-card" style="margin-bottom:24px;">
+                <h3 style="font-size:1.1rem; margin-bottom:16px;">Subject-wise Attendance</h3>
+                <div id="subjectStats">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+
+            <!-- Shortage Warnings -->
+            <div id="shortageSection" style="margin-bottom:24px; display:none;">
+                <div class="glass-card">
+                    <h3 style="font-size:1.1rem; margin-bottom:16px; color: var(--danger);">⚠️ Shortage Risk</h3>
+                    <div id="shortageList"></div>
+                </div>
+            </div>
+
+            <!-- Attendance Records -->
+            <div class="glass-card">
+                <div class="flex-between" style="margin-bottom:16px;">
+                    <h3 style="font-size:1.1rem;">Attendance Records</h3>
+                    <div class="tabs" style="margin-bottom:0; width:auto;">
+                        <button class="tab-btn active" data-period="today" id="periodToday">Today</button>
+                        <button class="tab-btn" data-period="week" id="periodWeek">This Week</button>
+                        <button class="tab-btn" data-period="month" id="periodMonth">This Month</button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Subject</th>
+                                <th>Time</th>
+                                <th>Room</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendanceBody">
+                            <tr>
+                                <td colspan="5">
+                                    <div class="spinner"></div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Profile -->
+        <div class="tab-content" id="tab-profile">
+            <div class="glass-card profile-card" id="profileCard">
+                <div class="profile-photo-section">
+                    <div class="profile-photo-placeholder" id="profilePhotoPlaceholder">S</div>
+                    <img class="profile-photo" id="profilePhoto" style="display:none;" alt="Profile Photo">
+                    <div style="margin-top:16px;">
+                        <label for="photoInput" class="btn btn-secondary btn-sm" style="cursor:pointer;">📷 Upload
+                            Photo</label>
+                        <input type="file" id="photoInput" accept="image/*" style="display:none;">
+                    </div>
+                </div>
+                <div class="profile-details">
+                    <div class="profile-name" id="profileName">—</div>
+                    <div class="profile-role">Student</div>
+                    <div class="profile-field">
+                        <span class="field-label">Roll No</span>
+                        <span class="field-value" id="profileRoll">—</span>
+                    </div>
+                    <div class="profile-field">
+                        <span class="field-label">Section</span>
+                        <span class="field-value" id="profileSection">—</span>
+                    </div>
+                    <div class="profile-field">
+                        <span class="field-label">Email</span>
+                        <span class="field-value" id="profileEmail">—</span>
+                    </div>
+                    <div class="profile-field">
+                        <span class="field-label">USN</span>
+                        <span class="field-value"><input type="text" class="form-control" id="profileUsn"
+                                placeholder="Enter USN" style="max-width:240px;"></span>
+                    </div>
+                    <div class="profile-field">
+                        <span class="field-label">Semester</span>
+                        <span class="field-value">
+                            <select class="form-control" id="profileSemester" style="max-width:240px;">
+                                <option value="">Select</option>
+                                <option value="1">1st</option>
+                                <option value="2">2nd</option>
+                                <option value="3">3rd</option>
+                                <option value="4">4th</option>
+                                <option value="5">5th</option>
+                                <option value="6">6th</option>
+                                <option value="7">7th</option>
+                                <option value="8">8th</option>
+                            </select>
+                        </span>
+                    </div>
+                    <div style="margin-top:16px;">
+                        <button class="btn btn-primary" id="saveProfileBtn">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-card" style="margin-top:24px;">
+                <h3 style="font-size:1.1rem; margin-bottom:16px;">Face Login Setup 📸</h3>
+                <div id="faceContainer" style="text-align:center;">
+                    <video id="videoInput" width="320" height="240" autoplay muted
+                        style="border-radius:8px; display:none; margin:0 auto 12px; border:2px solid var(--primary);"></video>
+                    <div id="faceStatus" style="margin-bottom:12px; font-size:0.9rem; color:#aaa;">Click below to set up
+                        Face
+                        ID.</div>
+                    <button class="btn btn-secondary" id="startFaceSetupBtn">Enable Camera</button>
+                    <button class="btn btn-primary" id="captureFaceBtn" style="display:none;">Capture &
+                        Register</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Upcoming Classes -->
+        <div class="tab-content" id="tab-upcoming">
+            <div class="section-header">
+                <h2>Upcoming Classes</h2>
+            </div>
+            <div id="upcomingList">
+                <div class="spinner"></div>
+            </div>
+        </div>
+        <div class="glass-card" style="margin-top:24px; max-width:600px;">
+            <h3 style="font-size:1.1rem; margin-bottom:16px;">Face Login Setup 📸</h3>
+            <div id="faceContainer" style="text-align:center;">
+                <video id="videoInput" width="320" height="240" autoplay muted
+                    style="border-radius:8px; display:none; margin:0 auto 12px; border:2px solid var(--primary);"></video>
+                <div id="faceStatus" style="margin-bottom:12px; font-size:0.9rem; color:#aaa;">Click below to set up
+                    Face
+                    ID for faster login.</div>
+                <button class="btn btn-secondary" id="startFaceSetupBtn" disabled>Loading models...</button>
+                <button class="btn btn-primary" id="captureFaceBtn" style="display:none;">Capture & Register</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Face API -->
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="/js/student.js"></script>
+</body>
+
+</html>

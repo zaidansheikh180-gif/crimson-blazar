@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Dashboard — SmartTrack AI</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+
+<body>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Navbar -->
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">
+            <div class="logo-icon">🎯</div>
+            <span>Smart<span class="text-gradient">Track</span> AI</span>
+        </a>
+        <div class="navbar-right">
+            <div class="user-info">
+                <span id="teacherName">Teacher</span>
+                <div class="user-avatar-placeholder" id="teacherAvatar">T</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="logoutBtn">Logout</button>
+        </div>
+    </nav>
+
+    <!-- Dashboard -->
+    <div class="dashboard">
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="attendance">📋 Mark Attendance</button>
+            <button class="tab-btn" data-tab="sessions">📅 Sessions</button>
+            <button class="tab-btn" data-tab="students">👥 Students</button>
+            <button class="tab-btn" data-tab="profile">👤 Profile</button>
+        </div>
+
+        <!-- Tab: Mark Attendance -->
+        <div class="tab-content active" id="tab-attendance">
+            <div class="section-header">
+                <h2>Mark Attendance</h2>
+            </div>
+
+            <!-- Create Session Form -->
+            <div class="glass-card" style="margin-bottom: 24px;">
+                <h3 style="font-size:1.1rem; margin-bottom:16px;">Create New Session</h3>
+                <form id="sessionForm">
+                    <div class="grid grid-3">
+                        <div class="form-group">
+                            <label for="sessionSubject">Subject</label>
+                            <select class="form-control" id="sessionSubject" required>
+                                <option value="">Select subject</option>
+                                <option>Data Structures</option>
+                                <option>AIML Lab</option>
+                                <option>Operating Systems</option>
+                                <option>Database Systems</option>
+                                <option>Computer Networks</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="sessionSection">Section</label>
+                            <select class="form-control" id="sessionSection" required>
+                                <option value="">Select section</option>
+                                <option>A</option>
+                                <option>B</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="sessionDate">Date</label>
+                            <input type="date" class="form-control" id="sessionDate" required>
+                        </div>
+                    </div>
+                    <div class="grid grid-2">
+                        <div class="form-group">
+                            <label for="sessionTime">Time Slot</label>
+                            <input type="text" class="form-control" id="sessionTime" placeholder="e.g. 09:00 - 10:00">
+                        </div>
+                        <div class="form-group">
+                            <label for="sessionRoom">Room</label>
+                            <input type="text" class="form-control" id="sessionRoom" placeholder="e.g. LH-201">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="createSessionBtn">Create Session & Load
+                        Students</button>
+                </form>
+            </div>
+
+            <!-- Attendance Marking Area -->
+            <div id="attendanceArea" style="display:none;">
+                <div class="glass-card">
+                    <div class="flex-between" style="margin-bottom:16px;">
+                        <h3 style="font-size:1.1rem;" id="attendanceTitle">Attendance for Session</h3>
+                        <div class="flex gap-sm">
+                            <button class="btn btn-success btn-sm" id="markAllPresent">✓ All Present</button>
+                            <button class="btn btn-danger btn-sm" id="markAllAbsent">✗ All Absent</button>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Roll No.</th>
+                                    <th>Name</th>
+                                    <th>Section</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attendanceBody"></tbody>
+                        </table>
+                    </div>
+                    <div style="margin-top:16px; text-align:right;">
+                        <button class="btn btn-primary btn-lg" id="submitAttendanceBtn">Submit Attendance</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Sessions -->
+        <div class="tab-content" id="tab-sessions">
+            <div class="section-header">
+                <h2>All Sessions</h2>
+            </div>
+            <div class="table-wrapper glass-card" style="padding:0;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Subject</th>
+                            <th>Section</th>
+                            <th>Time Slot</th>
+                            <th>Room</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessionsBody">
+                        <tr>
+                            <td colspan="6">
+                                <div class="spinner"></div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Session Attendance Detail -->
+            <div id="sessionDetail" style="display:none; margin-top:24px;">
+                <div class="glass-card">
+                    <h3 style="font-size:1.1rem; margin-bottom:16px;" id="sessionDetailTitle">Session Attendance</h3>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Roll No.</th>
+                                    <th>Name</th>
+                                    <th>Status</th>
+                                    <th>Marked At</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sessionDetailBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Students -->
+        <div class="tab-content" id="tab-students">
+            <div class="section-header">
+                <h2>Student Records</h2>
+                <button class="btn btn-primary btn-sm" id="addStudentBtn">+ Add Student</button>
+            </div>
+
+            <!-- Search & Filter -->
+            <div class="flex gap-md" style="margin-bottom:20px; flex-wrap:wrap;">
+                <div class="search-bar" style="flex:1; min-width:200px; margin-bottom:0;">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="studentSearch" placeholder="Search by name or roll number...">
+                </div>
+                <select class="form-control" id="studentFilter" style="width:auto; min-width:140px;">
+                    <option value="">All Sections</option>
+                    <option value="A">Section A</option>
+                    <option value="B">Section B</option>
+                </select>
+            </div>
+
+            <div class="table-wrapper glass-card" style="padding:0;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Roll No.</th>
+                            <th>Name</th>
+                            <th>Section</th>
+                            <th>Email</th>
+                            <th>USN</th>
+                            <th>Semester</th>
+                        </tr>
+                    </thead>
+                    <tbody id="studentsBody">
+                        <tr>
+                            <td colspan="6">
+                                <div class="spinner"></div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tab: Profile -->
+        <div class="tab-content" id="tab-profile">
+            <div class="section-header">
+                <h2>Teacher Profile</h2>
+            </div>
+            <div class="glass-card" style="max-width:600px;">
+                <form id="teacherProfileForm">
+                    <div class="form-group">
+                        <label for="teacherNameInput">Full Name</label>
+                        <input type="text" class="form-control" id="teacherNameInput" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="teacherEmailInput">Email (Read-only)</label>
+                        <input type="email" class="form-control" id="teacherEmailInput" readonly
+                            style="opacity:0.7; cursor:not-allowed;">
+                    </div>
+                    <div class="grid grid-2">
+                        <div class="form-group">
+                            <label for="defaultSubject">Default Subject</label>
+                            <select class="form-control" id="defaultSubject">
+                                <option value="">None</option>
+                                <option>Data Structures</option>
+                                <option>AIML Lab</option>
+                                <option>Operating Systems</option>
+                                <option>Database Systems</option>
+                                <option>Computer Networks</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="defaultSection">Default Section</label>
+                            <select class="form-control" id="defaultSection">
+                                <option value="">None</option>
+                                <option value="A">Section A</option>
+                                <option value="B">Section B</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="saveTeacherProfileBtn">Save Profile</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Student Modal -->
+    <div class="modal-overlay" id="addStudentModal">
+        <div class="modal">
+            <h3>Add New Student</h3>
+            <form id="addStudentForm">
+                <div class="form-group">
+                    <label for="newStudentName">Full Name *</label>
+                    <input type="text" class="form-control" id="newStudentName" required
+                        placeholder="Enter student name">
+                </div>
+                <div class="form-group">
+                    <label for="newStudentRoll">Roll Number *</label>
+                    <input type="text" class="form-control" id="newStudentRoll" required placeholder="e.g. CS21009">
+                </div>
+                <div class="form-group">
+                    <label for="newStudentSection">Section</label>
+                    <select class="form-control" id="newStudentSection">
+                        <option value="A">Section A</option>
+                        <option value="B">Section B</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="newStudentEmail">Email *</label>
+                    <input type="email" class="form-control" id="newStudentEmail" required
+                        placeholder="student@college.edu">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="cancelAddStudent">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add Student</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/js/teacher.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,9 @@
+node_modules/
+.env
+smarttrack.db
+smarttrack.db-journal
+public/uploads/*
+!public/uploads/.gitkeep
+npm-debug.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Sign in to SmartTrack AI — attendance tracking for teachers and students.">
+    <title>Sign In — SmartTrack AI</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+
+<body>
+    <div class="login-page">
+        <div class="glass-card login-card">
+            <a href="/" class="navbar-brand" style="justify-content:center; margin-bottom: 28px;">
+                <div class="logo-icon">🎯</div>
+                <span>Smart<span class="text-gradient">Track</span> AI</span>
+            </a>
+            <h2>Welcome Back</h2>
+            <p class="subtitle">Sign in to your account</p>
+
+            <!-- Role Toggle -->
+            <div class="role-toggle" id="roleToggle">
+                <button class="active" data-role="teacher" id="roleTeacher">👨‍🏫 Teacher</button>
+                <button data-role="student" id="roleStudent">🎓 Student</button>
+            </div>
+
+            <!-- Error Display -->
+            <div class="login-error" id="loginError"></div>
+
+            <!-- Login Form -->
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" class="form-control" id="email" placeholder="your@college.edu" required
+                        autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" class="form-control" id="password" placeholder="Enter your password" required
+                        autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%; margin-top: 8px;" id="loginBtn">
+                    Sign In
+                </button>
+            </form>
+
+            <!-- Face Login (Student only) -->
+            <div class="face-login-section" id="faceLoginSection"
+                style="display:none; text-align:center; margin-top:20px;">
+                <p style="margin-bottom:12px;">🤖 Or log in with Face ID</p>
+                <div id="faceLoginContainer" style="display:none; margin-bottom:12px;">
+                    <video id="loginVideo" width="320" height="240" autoplay muted
+                        style="border-radius:8px; display:block; margin:0 auto 8px; border:2px solid var(--primary);"></video>
+                    <div id="loginStatus" style="font-size:0.9rem; color:#aaa;">Loading...</div>
+                </div>
+                <button type="button" class="btn btn-secondary" style="width:100%;" id="startFaceLoginBtn"
+                    disabled>Enable Face Login</button>
+            </div>
+
+            <p style="color: var(--text-muted); font-size: 0.78rem; margin-top: 24px;">
+                Demo: teacher@college.edu / teacher123<br>
+                Student: student1@college.edu / student123
+            </p>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <script src="/js/login.js"></script>
+</body>
+
+</html>
