@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentUser = null;
     let currentSessionId = null;
     let attendanceData = {};
+    let allStudents = [];
 
     // ─── Auth Check ──────────────────────────────────────────
     async function checkAuth() {
@@ -247,18 +248,23 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadStudents() {
         try {
             const section = document.getElementById('studentFilter').value;
+            console.log(`[Data] Loading students for section: ${section || 'All'}`);
             const url = section ? `/api/teacher/students?section=${section}` : '/api/teacher/students';
             const res = await fetch(url);
             const students = await res.json();
+            allStudents = students; // Sync with global list for search
             renderStudents(students);
         } catch (err) {
+            console.error('[Data] Load error:', err);
             showToast('Failed to load students', 'error');
         }
     }
 
     function renderStudents(students) {
+        console.log(`[UI] Rendering ${students.length} students`);
         const tbody = document.getElementById('studentsBody');
-        const search = document.getElementById('studentSearch').value.toLowerCase();
+        const searchInput = document.getElementById('studentSearch');
+        const search = searchInput ? searchInput.value.toLowerCase() : '';
 
         const filtered = students.filter(s =>
             s.name.toLowerCase().includes(search) ||
@@ -266,7 +272,7 @@ document.addEventListener('DOMContentLoaded', () => {
         );
 
         if (!filtered.length) {
-            tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">👥</div><p>No students found</p></div></td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">👥</div><p>No students found</p></div></td></tr>`;
             return;
         }
 
@@ -278,25 +284,32 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>${s.email}</td>
         <td>${s.usn || '—'}</td>
         <td>${s.semester || '—'}</td>
+        <td>
+            <button class="btn btn-secondary btn-sm edit-student-btn" data-id="${s.id}">Edit</button>
+        </td>
       </tr>
     `).join('');
+
+        console.log(`[UI] Table innerHTML updated, attaching listeners`);
+
+        // Edit student button listeners
+        tbody.querySelectorAll('.edit-student-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                console.log(`[UI] Edit clicked for ID: ${btn.dataset.id}`);
+                const s = students.find(x => x.id == btn.dataset.id);
+                if (s) openEditModal(s);
+            });
+        });
     }
 
     // Student search & filter
-    let allStudents = [];
     document.getElementById('studentSearch').addEventListener('input', () => renderStudents(allStudents));
-    document.getElementById('studentFilter').addEventListener('change', async () => {
-        const section = document.getElementById('studentFilter').value;
-        const url = section ? `/api/teacher/students?section=${section}` : '/api/teacher/students';
-        const res = await fetch(url);
-        allStudents = await res.json();
-        renderStudents(allStudents);
-    });
+    document.getElementById('studentFilter').addEventListener('change', () => loadStudents());
 
-    // Initial load of all students for search
+    // Initial load of all students
     async function initStudents() {
-        const res = await fetch('/api/teacher/students');
-        allStudents = await res.json();
+        console.log('[Init] Loading all students');
+        await loadStudents();
     }
 
     // ─── Profile ─────────────────────────────────────────────
@@ -336,32 +349,61 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ─── Add Student Modal ───────────────────────────────────
+    // ─── Add/Edit Student Modal ──────────────────────────────
     const addStudentModal = document.getElementById('addStudentModal');
-    document.getElementById('addStudentBtn').addEventListener('click', () => addStudentModal.classList.add('active'));
+    const studentModalTitle = document.getElementById('studentModalTitle');
+    const editStudentIdInput = document.getElementById('editStudentId');
+
+    function openEditModal(s) {
+        studentModalTitle.textContent = 'Edit Student Details';
+        editStudentIdInput.value = s.id;
+        document.getElementById('newStudentName').value = s.name;
+        document.getElementById('newStudentRoll').value = s.roll_number;
+        document.getElementById('newStudentSection').value = s.section || 'A';
+        document.getElementById('newStudentUSN').value = s.usn || '';
+        document.getElementById('newStudentSemester').value = s.semester || '';
+        document.getElementById('newStudentEmail').value = s.email;
+        addStudentModal.classList.add('active');
+    }
+
+    document.getElementById('addStudentBtn').addEventListener('click', () => {
+        studentModalTitle.textContent = 'Add New Student';
+        editStudentIdInput.value = '';
+        document.getElementById('addStudentForm').reset();
+        addStudentModal.classList.add('active');
+    });
+
     document.getElementById('cancelAddStudent').addEventListener('click', () => addStudentModal.classList.remove('active'));
     addStudentModal.addEventListener('click', (e) => { if (e.target === addStudentModal) addStudentModal.classList.remove('active'); });
 
     document.getElementById('addStudentForm').addEventListener('submit', async (e) => {
         e.preventDefault();
+        const editId = editStudentIdInput.value;
         const name = document.getElementById('newStudentName').value.trim();
         const roll_number = document.getElementById('newStudentRoll').value.trim();
         const section = document.getElementById('newStudentSection').value;
+        const usn = document.getElementById('newStudentUSN').value.trim();
+        const semester = document.getElementById('newStudentSemester').value.trim();
         const email = document.getElementById('newStudentEmail').value.trim();
 
+        const studentData = { name, roll_number, section, email, usn, semester };
+        const url = editId ? `/api/teacher/students/${editId}` : '/api/teacher/students';
+        const method = editId ? 'PUT' : 'POST';
+
         try {
-            const res = await fetch('/api/teacher/students', {
-                method: 'POST',
+            const res = await fetch(url, {
+                method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, roll_number, section, email })
+                body: JSON.stringify(studentData)
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
 
-            showToast('Student added successfully!', 'success');
+            showToast(editId ? 'Student updated successfully!' : 'Student added successfully!', 'success');
             addStudentModal.classList.remove('active');
             document.getElementById('addStudentForm').reset();
             loadStudents();
+            initStudents(); // Refresh search list too
         } catch (err) {
             showToast(err.message, 'error');
         }
@@ -375,5 +417,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ─── Init ────────────────────────────────────────────────
     checkAuth();
-    initStudents();
+    loadStudents(); // Load and render students immediately
+    initStudents(); // Also init allStudents for search
 });

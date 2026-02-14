@@ -125,10 +125,16 @@
                 <div class="profile-photo-section">
                     <div class="profile-photo-placeholder" id="profilePhotoPlaceholder">S</div>
                     <img class="profile-photo" id="profilePhoto" style="display:none;" alt="Profile Photo">
-                    <div style="margin-top:16px;">
+                    <div style="margin-top:16px; display: flex; flex-direction: column; gap: 8px; align-items: center;">
                         <label for="photoInput" class="btn btn-secondary btn-sm" style="cursor:pointer;">📷 Upload
-                            Photo</label>
+                            File</label>
                         <input type="file" id="photoInput" accept="image/*" style="display:none;">
+
+                        <div style="display:flex; gap: 4px; width: 100%; max-width: 200px;">
+                            <input type="text" id="photoUrlInput" class="form-control form-control-sm"
+                                placeholder="Paste image URL...">
+                            <button class="btn btn-primary btn-sm" id="savePhotoUrlBtn">Save</button>
+                        </div>
                     </div>
                 </div>
                 <div class="profile-details">
@@ -178,10 +184,9 @@
                 <div id="faceContainer" style="text-align:center;">
                     <video id="videoInput" width="320" height="240" autoplay muted
                         style="border-radius:8px; display:none; margin:0 auto 12px; border:2px solid var(--primary);"></video>
-                    <div id="faceStatus" style="margin-bottom:12px; font-size:0.9rem; color:#aaa;">Click below to set up
-                        Face
-                        ID.</div>
-                    <button class="btn btn-secondary" id="startFaceSetupBtn">Enable Camera</button>
+                    <div id="faceStatus" style="margin-bottom:12px; font-size:0.9rem; color:#aaa;">Initializing AI...
+                    </div>
+                    <button class="btn btn-secondary" id="startFaceSetupBtn" disabled>Loading models...</button>
                     <button class="btn btn-primary" id="captureFaceBtn" style="display:none;">Capture &
                         Register</button>
                 </div>
@@ -197,23 +202,20 @@
                 <div class="spinner"></div>
             </div>
         </div>
-        <div class="glass-card" style="margin-top:24px; max-width:600px;">
-            <h3 style="font-size:1.1rem; margin-bottom:16px;">Face Login Setup 📸</h3>
-            <div id="faceContainer" style="text-align:center;">
-                <video id="videoInput" width="320" height="240" autoplay muted
-                    style="border-radius:8px; display:none; margin:0 auto 12px; border:2px solid var(--primary);"></video>
-                <div id="faceStatus" style="margin-bottom:12px; font-size:0.9rem; color:#aaa;">Click below to set up
-                    Face
-                    ID for faster login.</div>
-                <button class="btn btn-secondary" id="startFaceSetupBtn" disabled>Loading models...</button>
-                <button class="btn btn-primary" id="captureFaceBtn" style="display:none;">Capture & Register</button>
-            </div>
-        </div>
+    </div>
     </div>
 
     <!-- Face API -->
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <script src="/js/student.js"></script>
+
+    <!-- Photo View Modal -->
+    <div id="photoModal" class="modal-overlay">
+        <div class="modal photo-modal">
+            <span class="close-photo-modal" id="closePhotoModal">&times;</span>
+            <img id="fullPhoto" src="" alt="Full Profile Photo">
+        </div>
+    </div>
 </body>
 
 </html>

@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teacher Dashboard — SmartTrack AI</title>
-    <link rel="stylesheet" href="/css/styles.css">
+    <title>v3.0 - Teacher Dashboard — SmartTrack AI</title>
+    <link rel="stylesheet" href="/css/styles.css?v=3">
 </head>
 
 <body>
@@ -20,9 +20,10 @@
         </a>
         <div class="navbar-right">
             <div class="user-info">
+                <span class="user-role" style="font-size: 0.7rem; opacity: 0.8; display: block;">v3.0 Dashboard</span>
                 <span id="teacherName">Teacher</span>
-                <div class="user-avatar-placeholder" id="teacherAvatar">T</div>
             </div>
+            <div class="user-avatar-placeholder" id="teacherAvatar">T</div>
             <button class="btn btn-secondary btn-sm" id="logoutBtn">Logout</button>
         </div>
     </nav>
@@ -168,8 +169,8 @@
         <!-- Tab: Students -->
         <div class="tab-content" id="tab-students">
             <div class="section-header">
-                <h2>Student Records</h2>
-                <button class="btn btn-primary btn-sm" id="addStudentBtn">+ Add Student</button>
+                <h2>Student Records & Management</h2>
+                <button class="btn btn-primary btn-sm" id="addStudentBtn">+ Add New Student</button>
             </div>
 
             <!-- Search & Filter -->
@@ -182,6 +183,10 @@
                     <option value="">All Sections</option>
                     <option value="A">Section A</option>
                     <option value="B">Section B</option>
+                    <option value="C">Section C</option>
+                    <option value="D">Section D</option>
+                    <option value="E">Section E</option>
+                    <option value="F">Section F</option>
                 </select>
             </div>
 
@@ -195,11 +200,12 @@
                             <th>Email</th>
                             <th>USN</th>
                             <th>Semester</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="studentsBody">
                         <tr>
-                            <td colspan="6">
+                            <td colspan="7">
                                 <div class="spinner"></div>
                             </td>
                         </tr>
@@ -254,8 +260,9 @@
     <!-- Add Student Modal -->
     <div class="modal-overlay" id="addStudentModal">
         <div class="modal">
-            <h3>Add New Student</h3>
+            <h3 id="studentModalTitle">Add New Student</h3>
             <form id="addStudentForm">
+                <input type="hidden" id="editStudentId">
                 <div class="form-group">
                     <label for="newStudentName">Full Name *</label>
                     <input type="text" class="form-control" id="newStudentName" required
@@ -266,11 +273,26 @@
                     <input type="text" class="form-control" id="newStudentRoll" required placeholder="e.g. CS21009">
                 </div>
                 <div class="form-group">
-                    <label for="newStudentSection">Section</label>
-                    <select class="form-control" id="newStudentSection">
+                    <label for="newStudentSection">Section *</label>
+                    <select class="form-control" id="newStudentSection" required>
                         <option value="A">Section A</option>
                         <option value="B">Section B</option>
+                        <option value="C">Section C</option>
+                        <option value="D">Section D</option>
+                        <option value="E">Section E</option>
+                        <option value="F">Section F</option>
                     </select>
+                </div>
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label for="newStudentUSN">USN</label>
+                        <input type="text" class="form-control" id="newStudentUSN" placeholder="e.g. 1RV21CS001">
+                    </div>
+                    <div class="form-group">
+                        <label for="newStudentSemester">Semester & Year *</label>
+                        <input type="text" class="form-control" id="newStudentSemester" required
+                            placeholder="e.g. 2nd sem 1st year">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="newStudentEmail">Email *</label>
@@ -285,7 +307,7 @@
         </div>
     </div>
 
-    <script src="/js/teacher.js"></script>
+    <script src="/js/teacher.js?v=3"></script>
 </body>
 
 </html>

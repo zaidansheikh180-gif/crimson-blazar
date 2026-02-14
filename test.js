@@ -99,6 +99,19 @@ async function test() {
     console.log(`   Login Status: ${faceLogin.status} | Name: ${faceLogin.body.name}`);
     console.log(`   Face Login Success: ${faceLogin.body.name === 'Aarav Patel' ? '✅' : '❌'}\n`);
 
+    // 12. Student Registration Flow
+    console.log('12. User Registration Flow...');
+    const regData = {
+        name: 'New Student',
+        email: `newstudent${Date.now()}@college.edu`,
+        roll_number: `NS${Math.floor(Math.random() * 10000)}`,
+        password: 'password123'
+    };
+
+    const reg = await apiRequest('POST', '/api/auth/register', regData);
+    console.log(`   Register Status: ${reg.status} | Role: ${reg.body.role} | Name: ${reg.body.name}`);
+    console.log(`   Registration Success: ${reg.status === 201 ? '✅' : '❌'}\n`);
+
     console.log('═══ All Tests Complete ═══');
 }
 

@@ -76,16 +76,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isModelsLoaded) return;
         try {
             startFaceBtn.textContent = 'Loading AI models...';
-            // Load from /models
+            loginStatus.textContent = 'Downloading AI weights...';
+            console.log('Loading models in login page...');
+
             await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
             await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
             await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+
             isModelsLoaded = true;
             startFaceBtn.disabled = false;
             startFaceBtn.textContent = 'Enable Face Login';
+            loginStatus.textContent = 'Models ready.';
         } catch (err) {
-            console.error(err);
-            startFaceBtn.textContent = 'Failed to load AI';
+            console.error('Login model load error:', err);
+            startFaceBtn.textContent = 'AI Load Failed';
+            loginStatus.textContent = 'Error: ' + (err.message || err);
         }
     }
 

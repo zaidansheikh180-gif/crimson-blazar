@@ -40,6 +40,13 @@ const upload = multer({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// Debug logging for models
+app.use('/models', (req, res, next) => {
+    console.log(`[Models] Requesting: ${req.url}`);
+    next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Auth Middleware ─────────────────────────────────────────
@@ -90,8 +97,10 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
-        const rows = db.exec(`SELECT * FROM users WHERE email = ?`, [email]);
+        console.log(`[Auth] Login attempt: ${email}`);
+        const rows = db.exec(`SELECT * FROM users WHERE LOWER(email) = LOWER(?)`, [email.trim()]);
         if (!rows.length || !rows[0].values.length) {
+            console.log(`[Auth] Login failed: Email not found (${email})`);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
@@ -102,9 +111,11 @@ app.post('/api/auth/login', async (req, res) => {
 
         const valid = bcrypt.compareSync(password, user.password_hash);
         if (!valid) {
+            console.log(`[Auth] Login failed: Password mismatch for ${email}`);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
+        console.log(`[Auth] Login success: ${email} (${user.role})`);
         const token = jwt.sign(
             { id: user.id, email: user.email, role: user.role, name: user.name || '' },
             JWT_SECRET,
@@ -118,6 +129,9 @@ app.post('/api/auth/login', async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 });
+
+// Self-registration endpoint removed to enforce teacher-led registration.
+// Students now have accounts created for them by teachers.
 
 app.post('/api/auth/logout', (req, res) => {
     res.clearCookie('token');
@@ -143,6 +157,7 @@ app.post('/api/auth/login-face', async (req, res) => {
             try {
                 const storedDesc = JSON.parse(s.face_descriptor);
                 const distance = euclideanDistance(descriptor, storedDesc);
+                console.log(`[Auth] Comparison with ${s.email}: ${distance.toFixed(4)}`);
                 if (distance < minDistance) {
                     minDistance = distance;
                     bestMatch = s;
@@ -153,9 +168,11 @@ app.post('/api/auth/login-face', async (req, res) => {
         }
 
         if (!bestMatch) {
+            console.log(`[Auth] Face login failed: No match found (min distance encountered: ${minDistance.toFixed(4)})`);
             return res.status(401).json({ error: 'Face not recognized' });
         }
 
+        console.log(`[Auth] Face login success: Matched ${bestMatch.email} with distance ${minDistance.toFixed(4)}`);
         const token = jwt.sign({ id: bestMatch.uid, email: bestMatch.email, role: 'student', name: bestMatch.name }, JWT_SECRET, { expiresIn: '24h' });
         res.cookie('token', token, { httpOnly: true, sameSite: 'lax', maxAge: 86400000 });
         return res.json({ role: 'student', name: bestMatch.name });
@@ -231,14 +248,14 @@ app.get('/api/teacher/students', authMiddleware, requireRole('teacher'), async (
 app.post('/api/teacher/students', authMiddleware, requireRole('teacher'), async (req, res) => {
     try {
         const db = await getDb();
-        const { name, roll_number, section, email, photo_url } = req.body;
+        const { name, roll_number, section, email, usn, semester } = req.body;
 
         if (!name || !roll_number || !email) {
             return res.status(400).json({ error: 'Name, roll number, and email are required' });
         }
 
-        // Check if user exists
-        const existing = queryOne(db, 'SELECT id FROM users WHERE email = ?', [email]);
+        // Check if user exists (case-insensitive)
+        const existing = queryOne(db, 'SELECT id FROM users WHERE LOWER(email) = LOWER(?)', [email.trim()]);
         if (existing) {
             return res.status(409).json({ error: 'A user with this email already exists' });
         }
@@ -247,14 +264,14 @@ app.post('/api/teacher/students', authMiddleware, requireRole('teacher'), async 
         const hash = bcrypt.hashSync('student123', 10);
         db.run(
             `INSERT INTO users (email, password_hash, role, name, roll_number) VALUES (?, ?, 'student', ?, ?)`,
-            [email, hash, name, roll_number]
+            [email.trim(), hash, name, roll_number]
         );
         const userId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
 
         // Create student record
         db.run(
-            `INSERT INTO students (name, roll_number, section, email, photo_url, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
-            [name, roll_number, section || '', email, photo_url || '', userId]
+            `INSERT INTO students (name, roll_number, section, email, usn, semester, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [name, roll_number, section || 'A', email.trim(), usn || '', semester || '', userId]
         );
         const studentId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
 
@@ -263,6 +280,37 @@ app.post('/api/teacher/students', authMiddleware, requireRole('teacher'), async 
         res.status(201).json(student);
     } catch (err) {
         console.error('Add student error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.put('/api/teacher/students/:id', authMiddleware, requireRole('teacher'), async (req, res) => {
+    try {
+        const db = await getDb();
+        const { id } = req.params;
+        const { name, roll_number, section, email, usn, semester } = req.body;
+
+        const student = queryOne(db, 'SELECT * FROM students WHERE id = ?', [id]);
+        if (!student) return res.status(404).json({ error: 'Student not found' });
+
+        // Update student record
+        db.run(
+            `UPDATE students SET name = ?, roll_number = ?, section = ?, email = ?, usn = ?, semester = ? WHERE id = ?`,
+            [name || student.name, roll_number || student.roll_number, section || student.section, email || student.email, usn || student.usn, semester || student.semester, id]
+        );
+
+        // Update associated user record if exists
+        if (student.user_id) {
+            db.run(
+                `UPDATE users SET name = ?, roll_number = ?, email = ? WHERE id = ?`,
+                [name || student.name, roll_number || student.roll_number, email || student.email, student.user_id]
+            );
+        }
+
+        saveDb();
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Update student error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -374,6 +422,26 @@ app.post('/api/student/profile/photo', authMiddleware, requireRole('student'), u
         res.json({ photo_url: photoUrl });
     } catch (err) {
         console.error('Photo upload error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/student/profile/photo-url', authMiddleware, requireRole('student'), async (req, res) => {
+    try {
+        const db = await getDb();
+        const { photo_url } = req.body;
+        if (!photo_url) return res.status(400).json({ error: 'Photo URL is required' });
+
+        // Basic URL validation
+        if (!photo_url.startsWith('http')) {
+            return res.status(400).json({ error: 'Invalid URL. Must start with http:// or https://' });
+        }
+
+        db.run('UPDATE students SET photo_url = ? WHERE user_id = ?', [photo_url, req.user.id]);
+        saveDb();
+        res.json({ photo_url });
+    } catch (err) {
+        console.error('Photo URL update error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -541,6 +609,25 @@ app.post('/api/student/face-register', authMiddleware, requireRole('student'), a
         const { descriptor } = req.body;
         if (!descriptor || !Array.isArray(descriptor)) {
             return res.status(400).json({ error: 'Invalid descriptor' });
+        }
+
+        // Check if this face is already registered to another user
+        const otherStudents = queryAll(db, `SELECT s.face_descriptor, s.name, u.email FROM students s JOIN users u ON s.user_id = u.id WHERE s.user_id != ? AND s.face_descriptor != ''`, [req.user.id]);
+
+        console.log(`[Auth] Checking face uniqueness against ${otherStudents.length} other registered students`);
+
+        for (const s of otherStudents) {
+            try {
+                const storedDesc = JSON.parse(s.face_descriptor);
+                const distance = euclideanDistance(descriptor, storedDesc);
+                console.log(`[Auth] Distance to ${s.email}: ${distance.toFixed(4)}`);
+                if (distance < 0.62) {
+                    console.log(`[Auth] Duplicate face detected: Current student too similar to ${s.email} (distance: ${distance.toFixed(4)})`);
+                    return res.status(409).json({ error: 'This face is already registered to another account' });
+                }
+            } catch (e) {
+                console.warn(`[Auth] Could not parse face_descriptor for student: ${s.email}`);
+            }
         }
 
         db.run('UPDATE students SET face_descriptor = ? WHERE user_id = ?', [JSON.stringify(descriptor), req.user.id]);

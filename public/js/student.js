@@ -208,6 +208,47 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // Helper to update photo UI
+    function updatePhotoUI(photoUrl) {
+        const profileImg = document.getElementById('profilePhoto');
+        const navImg = document.getElementById('avatarImg');
+        const placeholder = document.getElementById('profilePhotoPlaceholder');
+        const navPlaceholder = document.getElementById('avatarPlaceholder');
+
+        const timestampedUrl = photoUrl.startsWith('http') ? photoUrl : (photoUrl + '?t=' + Date.now());
+
+        profileImg.src = timestampedUrl;
+        profileImg.style.display = 'block';
+        placeholder.style.display = 'none';
+
+        navImg.src = timestampedUrl;
+        navImg.style.display = 'block';
+        navPlaceholder.style.display = 'none';
+        document.getElementById('avatarLink').href = photoUrl;
+    }
+
+    // Photo URL update
+    document.getElementById('savePhotoUrlBtn').addEventListener('click', async () => {
+        const photo_url = document.getElementById('photoUrlInput').value.trim();
+        if (!photo_url) return;
+
+        try {
+            const res = await fetch('/api/student/profile/photo-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ photo_url })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            updatePhotoUI(data.photo_url);
+            showToast('Photo URL updated!', 'success');
+            document.getElementById('photoUrlInput').value = '';
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    });
+
     // Photo upload
     document.getElementById('photoInput').addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -224,22 +265,39 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
 
-            // Update profile photo
-            const profileImg = document.getElementById('profilePhoto');
-            profileImg.src = data.photo_url + '?t=' + Date.now();
-            profileImg.style.display = 'block';
-            document.getElementById('profilePhotoPlaceholder').style.display = 'none';
-
-            // Update nav avatar
-            const navImg = document.getElementById('avatarImg');
-            navImg.src = data.photo_url + '?t=' + Date.now();
-            navImg.style.display = 'block';
-            document.getElementById('avatarPlaceholder').style.display = 'none';
-            document.getElementById('avatarLink').href = data.photo_url;
-
+            updatePhotoUI(data.photo_url);
             showToast('Photo uploaded!', 'success');
         } catch (err) {
             showToast(err.message, 'error');
+        }
+    });
+
+    // ─── Photo View Modal ────────────────────────────────────
+    const photoModal = document.getElementById('photoModal');
+    const fullPhoto = document.getElementById('fullPhoto');
+    const profilePhoto = document.getElementById('profilePhoto');
+    const profilePlaceholder = document.getElementById('profilePhotoPlaceholder');
+    const closePhotoModal = document.getElementById('closePhotoModal');
+
+    function openFullPhoto() {
+        if (profilePhoto.style.display !== 'none' && profilePhoto.src) {
+            fullPhoto.src = profilePhoto.src;
+            photoModal.classList.add('active');
+        } else {
+            showToast('No photo to view', 'info');
+        }
+    }
+
+    profilePhoto.addEventListener('click', openFullPhoto);
+    profilePlaceholder.addEventListener('click', openFullPhoto);
+
+    closePhotoModal.addEventListener('click', () => {
+        photoModal.classList.remove('active');
+    });
+
+    photoModal.addEventListener('click', (e) => {
+        if (e.target === photoModal) {
+            photoModal.classList.remove('active');
         }
     });
 
@@ -297,16 +355,22 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadModels() {
         try {
             status.textContent = 'Loading AI models...';
+            console.log('Starting model load from /models');
             await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+            console.log('TinyFaceDetector loaded');
             await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+            console.log('FaceLandmark68Net loaded');
             await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
+            console.log('FaceRecognitionNet loaded');
+
             isModelsLoaded = true;
             status.textContent = 'Models loaded. Click "Enable Camera" to start.';
             startBtn.disabled = false;
             startBtn.textContent = 'Enable Camera';
         } catch (err) {
-            console.error(err);
-            status.textContent = 'Failed to load AI models. Check console.';
+            console.error('Model load error:', err);
+            status.textContent = 'Failed to load AI models: ' + (err.message || err);
+            status.style.color = 'var(--danger)';
         }
     }
 
@@ -359,7 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ descriptor: Array.from(detections.descriptor) })
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error);
+            if (!res.ok) throw new Error(data.error || 'Registration failed');
 
             showToast('Face ID registered successfully!', 'success');
             status.textContent = 'Face ID registered! You can now use Face Login.';
@@ -369,6 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
             video.style.display = 'none';
             captureBtn.style.display = 'none';
         } catch (err) {
+            console.error('Face registration error:', err);
             showToast(err.message, 'error');
         }
     });
