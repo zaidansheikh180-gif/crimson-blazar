@@ -4,6 +4,7 @@ node_modules/
 .env.production
 smarttrack.db
 smarttrack.db-journal
+smarttrack.db-*
 public/uploads/*
 !public/uploads/.gitkeep
 
