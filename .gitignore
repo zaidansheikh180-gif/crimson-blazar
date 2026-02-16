@@ -6,18 +6,34 @@ smarttrack.db
 smarttrack.db-journal
 public/uploads/*
 !public/uploads/.gitkeep
+
+# Windows system files
+[Dd]esktop.ini
+$RECYCLE.BIN/
+ehthumbs.db
+Thumbs.db
+
+# Logs
 npm-debug.log
 yarn-debug.log*
 yarn-error.log*
-.DS_Store
-Thumbs.db
 *.log
+
+# IDEs and Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# OS X
+.DS_Store
+
+# Build/Cache
 .cache/
 dist/
 build/
 coverage/
+
+# Testing
+test.js
