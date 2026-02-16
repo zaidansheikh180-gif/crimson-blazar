@@ -8,7 +8,6 @@ const path = require('path');
 const fs = require('fs');
 const helmet = require('helmet');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
 const { getDb, saveDb } = require('./database');
 
 const app = express();
@@ -20,6 +19,26 @@ if (NODE_ENV === 'production' && !process.env.JWT_SECRET) {
     process.exit(1);
 }
 const JWT_SECRET = process.env.JWT_SECRET || 'smarttrack-ai-secret-key-2026';
+
+// ─── Auto-Seed Admin User ──────────────────────────────────
+async function ensureAdminExists() {
+    try {
+        const db = await getDb();
+        const adminEmail = 'admin@smarttrack.ai';
+        const rows = db.exec("SELECT * FROM users WHERE email=?", [adminEmail]);
+
+        if (rows.length === 0 || rows[0].values.length === 0) {
+            console.log('🌱 No admin found. Auto-seeding admin account...');
+            const hash = bcrypt.hashSync('adminpassword123', 10);
+            db.run("INSERT INTO users (email, password_hash, role, name) VALUES (?, ?, 'teacher', ?)",
+                [adminEmail, hash, 'Administrator']);
+            saveDb();
+            console.log('✅ Admin auto-seeded successfully.');
+        }
+    } catch (err) {
+        console.error('❌ Auto-seed error:', err);
+    }
+}
 
 const uploadsDir = path.join(__dirname, 'public', 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
@@ -71,7 +90,7 @@ function euclideanDistance(a, b) {
     return Math.sqrt(a.reduce((sum, val, i) => sum + Math.pow(val - b[i], 2), 0));
 }
 
-// ─── Auth ───────────────────────────────────────────────────
+// ─── Auth Routes ─────────────────────────────────────────────
 app.post('/api/auth/login', async (req, res) => {
     try {
         const db = await getDb();
@@ -92,7 +111,7 @@ app.post('/api/auth/login-face', async (req, res) => {
 
         const students = queryAll(db, "SELECT s.*, u.role FROM students s JOIN users u ON s.user_id = u.id WHERE s.face_descriptor != ''");
         let bestMatch = null;
-        let minDistance = 0.45; // Tightened threshold from 0.6 to 0.45 for better security
+        let minDistance = 0.45;
 
         for (const s of students) {
             const storedDesc = JSON.parse(s.face_descriptor);
@@ -114,7 +133,7 @@ app.post('/api/auth/login-face', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => { res.clearCookie('token'); res.json({ success: true }); });
 app.get('/api/auth/me', authMiddleware, (req, res) => res.json(req.user));
 
-// ─── Teacher ────────────────────────────────────────────────
+// ─── Teacher Routes ──────────────────────────────────────────
 app.get('/api/teacher/profile', authMiddleware, requireRole('teacher'), async (req, res) => {
     const db = await getDb();
     res.json(queryOne(db, 'SELECT id, email, name, default_subject, default_section FROM users WHERE id = ?', [req.user.id]));
@@ -177,7 +196,7 @@ app.get('/api/teacher/attendance/:sessionId', authMiddleware, requireRole('teach
     res.json(records);
 });
 
-// ─── Student ────────────────────────────────────────────────
+// ─── Student Routes ──────────────────────────────────────────
 app.get('/api/student/dashboard', authMiddleware, requireRole('student'), async (req, res) => {
     try {
         const db = await getDb();
@@ -242,4 +261,10 @@ app.post('/api/student/face-register', authMiddleware, requireRole('student'), a
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-app.listen(PORT, () => console.log(`🚀 SmartTrack AI running at http://localhost:${PORT}`));
+
+async function start() {
+    await getDb();
+    await ensureAdminExists(); // Run auto-seed
+    app.listen(PORT, () => console.log(`🚀 SmartTrack AI running at http://localhost:${PORT}`));
+}
+start();
