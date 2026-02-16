@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
@@ -5,11 +6,27 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const { getDb, saveDb } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// CRITICAL: JWT_SECRET must be set in production
+if (NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+    console.error('❌ FATAL: JWT_SECRET environment variable is required in production');
+    console.error('Generate a secret: openssl rand -base64 32');
+    process.exit(1);
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || 'smarttrack-ai-secret-key-2026';
+
+if (NODE_ENV === 'development' && !process.env.JWT_SECRET) {
+    console.warn('⚠️  WARNING: Using default JWT_SECRET in development. Set JWT_SECRET in .env for production.');
+}
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'public', 'uploads');
@@ -35,6 +52,59 @@ const upload = multer({
         cb(null, ext && mime);
     }
 });
+
+// ─── Security Middleware ─────────────────────────────────────
+// Helmet for security headers
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            imgSrc: ["'self'", "data:", "blob:"],
+            connectSrc: ["'self'"]
+        }
+    }
+}));
+
+// CORS Configuration
+const corsOptions = {
+    origin: process.env.CORS_ORIGIN || '*',
+    credentials: true,
+    optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
+// ─── Health Check (Priority) ─────────────────────────────────
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime(), environment: NODE_ENV });
+});
+
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime(), environment: NODE_ENV });
+});
+
+// General rate limiter
+const generalLimiter = rateLimit({
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+    message: { error: 'Too many requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// Stricter rate limiter for auth endpoints
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS) || 5,
+    message: { error: 'Too many login attempts, please try again after 15 minutes' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true
+});
+
+app.use('/api/', generalLimiter);
 
 // Middleware
 app.use(express.json());
@@ -71,13 +141,33 @@ function requireRole(...roles) {
     };
 }
 
+// Helper functions
+function queryAll(db, sql, params = []) {
+    const rows = db.exec(sql, params);
+    if (!rows.length) return [];
+    const cols = rows[0].columns;
+    return rows[0].values.map(vals => {
+        const obj = {};
+        cols.forEach((c, i) => obj[c] = vals[i]);
+        return obj;
+    });
+}
+
+function queryOne(db, sql, params = []) {
+    const all = queryAll(db, sql, params);
+    return all.length ? all[0] : null;
+}
+
+function euclideanDistance(a, b) {
+    return Math.sqrt(a.reduce((sum, val, i) => sum + Math.pow(val - b[i], 2), 0));
+}
+
 // ─── Auth Routes ─────────────────────────────────────────────
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
     try {
         const db = await getDb();
         const { email, password, faceToken } = req.body;
 
-        // Face token login path
         if (faceToken) {
             const rows = db.exec(`SELECT s.*, u.id as uid, u.role, u.password_hash FROM students s JOIN users u ON s.user_id = u.id WHERE s.face_token = ?`, [faceToken]);
             if (!rows.length || !rows[0].values.length) {
@@ -97,10 +187,8 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
-        console.log(`[Auth] Login attempt: ${email}`);
         const rows = db.exec(`SELECT * FROM users WHERE LOWER(email) = LOWER(?)`, [email.trim()]);
         if (!rows.length || !rows[0].values.length) {
-            console.log(`[Auth] Login failed: Email not found (${email})`);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
@@ -111,17 +199,10 @@ app.post('/api/auth/login', async (req, res) => {
 
         const valid = bcrypt.compareSync(password, user.password_hash);
         if (!valid) {
-            console.log(`[Auth] Login failed: Password mismatch for ${email}`);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        console.log(`[Auth] Login success: ${email} (${user.role})`);
-        const token = jwt.sign(
-            { id: user.id, email: user.email, role: user.role, name: user.name || '' },
-            JWT_SECRET,
-            { expiresIn: '24h' }
-        );
-
+        const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name || '' }, JWT_SECRET, { expiresIn: '24h' });
         res.cookie('token', token, { httpOnly: true, sameSite: 'lax', maxAge: 86400000 });
         res.json({ role: user.role, name: user.name || user.email });
     } catch (err) {
@@ -130,15 +211,12 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// Self-registration endpoint removed to enforce teacher-led registration.
-// Students now have accounts created for them by teachers.
-
 app.post('/api/auth/logout', (req, res) => {
     res.clearCookie('token');
     return res.json({ success: true });
 });
 
-app.post('/api/auth/login-face', async (req, res) => {
+app.post('/api/auth/login-face', authLimiter, async (req, res) => {
     try {
         const db = await getDb();
         const { descriptor } = req.body;
@@ -146,37 +224,30 @@ app.post('/api/auth/login-face', async (req, res) => {
             return res.status(400).json({ error: 'Invalid descriptor' });
         }
 
-        // Get all students with face descriptors
         const students = queryAll(db, `SELECT s.*, u.id as uid, u.role, u.password_hash FROM students s JOIN users u ON s.user_id = u.id WHERE s.face_descriptor != ''`);
-
-        // Find best match
         let bestMatch = null;
-        let minDistance = 0.6; // Threshold
+        let minDistance = 0.6;
 
         for (const s of students) {
             try {
                 const storedDesc = JSON.parse(s.face_descriptor);
                 const distance = euclideanDistance(descriptor, storedDesc);
-                console.log(`[Auth] Comparison with ${s.email}: ${distance.toFixed(4)}`);
                 if (distance < minDistance) {
                     minDistance = distance;
                     bestMatch = s;
                 }
             } catch (e) {
-                console.error('Error parsing descriptor for student', s.id);
+                console.warn(`Could not parse face_descriptor for student ${s.id}`);
             }
         }
 
         if (!bestMatch) {
-            console.log(`[Auth] Face login failed: No match found (min distance encountered: ${minDistance.toFixed(4)})`);
             return res.status(401).json({ error: 'Face not recognized' });
         }
 
-        console.log(`[Auth] Face login success: Matched ${bestMatch.email} with distance ${minDistance.toFixed(4)}`);
         const token = jwt.sign({ id: bestMatch.uid, email: bestMatch.email, role: 'student', name: bestMatch.name }, JWT_SECRET, { expiresIn: '24h' });
         res.cookie('token', token, { httpOnly: true, sameSite: 'lax', maxAge: 86400000 });
         return res.json({ role: 'student', name: bestMatch.name });
-
     } catch (err) {
         console.error('Face login error:', err);
         res.status(500).json({ error: 'Server error' });
@@ -187,340 +258,178 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
     res.json({ id: req.user.id, email: req.user.email, role: req.user.role, name: req.user.name });
 });
 
-// ─── Helper: parse sql.js result to array of objects ──────────
-function queryAll(db, sql, params = []) {
-    const result = db.exec(sql, params);
-    if (!result.length) return [];
-    const cols = result[0].columns;
-    return result[0].values.map(row => {
-        const obj = {};
-        cols.forEach((c, i) => obj[c] = row[i]);
-        return obj;
-    });
-}
-
-function queryOne(db, sql, params = []) {
-    const rows = queryAll(db, sql, params);
-    return rows.length ? rows[0] : null;
-}
-
-function euclideanDistance(d1, d2) {
-    if (!d1 || !d2 || d1.length !== d2.length) return 2.0;
-    return Math.sqrt(d1.reduce((sum, val, i) => sum + Math.pow(val - d2[i], 2), 0));
-}
-
 // ─── Teacher Routes ──────────────────────────────────────────
-app.get('/api/teacher/profile', authMiddleware, requireRole('teacher'), async (req, res) => {
-    const db = await getDb();
-    const user = queryOne(db, 'SELECT id, email, name, role, created_at, default_subject, default_section FROM users WHERE id = ?', [req.user.id]);
-    res.json(user);
-});
-
-app.put('/api/teacher/profile', authMiddleware, requireRole('teacher'), async (req, res) => {
+app.get('/api/teacher/dashboard', authMiddleware, requireRole('teacher'), async (req, res) => {
     try {
         const db = await getDb();
-        const { name, default_subject, default_section } = req.body;
-        db.run(
-            'UPDATE users SET name = ?, default_subject = ?, default_section = ? WHERE id = ?',
-            [name || '', default_subject || '', default_section || '', req.user.id]
-        );
-        saveDb();
-        const user = queryOne(db, 'SELECT id, email, name, role, created_at, default_subject, default_section FROM users WHERE id = ?', [req.user.id]);
-        res.json(user);
+        const totalStudents = queryAll(db, 'SELECT COUNT(*) as count FROM students')[0].count;
+        const sessionsToday = queryAll(db, `SELECT COUNT(*) as count FROM sessions WHERE date = ?`, [new Date().toISOString().split('T')[0]])[0].count;
+        const subjects = queryAll(db, 'SELECT DISTINCT subject FROM sessions').map(r => r.subject);
+        const sections = queryAll(db, 'SELECT DISTINCT section FROM students').map(r => r.section);
+
+        const recentSessions = queryAll(db, `
+            SELECT s.*,
+                   (SELECT COUNT(*) FROM attendance a WHERE a.session_id = s.id AND a.status = 'present') as present_count,
+                   (SELECT COUNT(*) FROM attendance a WHERE a.session_id = s.id) as total_marked
+            FROM sessions s
+            ORDER BY s.created_at DESC
+            LIMIT 5
+        `);
+
+        res.json({ totalStudents, sessionsToday, subjects, sections, recentSessions });
     } catch (err) {
-        console.error('Update teacher profile error:', err);
+        console.error('Dashboard error:', err);
         res.status(500).json({ error: 'Server error' });
     }
-});
-
-app.get('/api/teacher/students', authMiddleware, requireRole('teacher'), async (req, res) => {
-    const db = await getDb();
-    const { section } = req.query;
-    let students;
-    if (section) {
-        students = queryAll(db, 'SELECT * FROM students WHERE section = ? ORDER BY roll_number', [section]);
-    } else {
-        students = queryAll(db, 'SELECT * FROM students ORDER BY roll_number');
-    }
-    res.json(students);
 });
 
 app.post('/api/teacher/students', authMiddleware, requireRole('teacher'), async (req, res) => {
     try {
         const db = await getDb();
-        const { name, roll_number, section, email, usn, semester } = req.body;
-
-        if (!name || !roll_number || !email) {
-            return res.status(400).json({ error: 'Name, roll number, and email are required' });
+        const { name, email, rollNumber, section } = req.body;
+        if (!name || !email || !rollNumber || !section) {
+            return res.status(400).json({ error: 'All fields required' });
         }
 
-        // Check if user exists (case-insensitive)
-        const existing = queryOne(db, 'SELECT id FROM users WHERE LOWER(email) = LOWER(?)', [email.trim()]);
-        if (existing) {
-            return res.status(409).json({ error: 'A user with this email already exists' });
-        }
+        const existing = queryOne(db, 'SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [email]);
+        if (existing) return res.status(409).json({ error: 'Email already registered' });
 
-        // Create user account with default password
-        const hash = bcrypt.hashSync('student123', 10);
-        db.run(
-            `INSERT INTO users (email, password_hash, role, name, roll_number) VALUES (?, ?, 'student', ?, ?)`,
-            [email.trim(), hash, name, roll_number]
-        );
-        const userId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+        const existingRoll = queryOne(db, 'SELECT * FROM students WHERE roll_number = ? AND section = ?', [rollNumber, section]);
+        if (existingRoll) return res.status(409).json({ error: 'Roll number already exists in this section' });
 
-        // Create student record
-        db.run(
-            `INSERT INTO students (name, roll_number, section, email, usn, semester, user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [name, roll_number, section || 'A', email.trim(), usn || '', semester || '', userId]
-        );
-        const studentId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+        const defaultPassword = `student${rollNumber}`;
+        const hash = bcrypt.hashSync(defaultPassword, 10);
+
+        db.run('INSERT INTO users (email, password_hash, role, name) VALUES (?, ?, ?, ?)', [email, hash, 'student', name]);
+        const userId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0];
+
+        db.run('INSERT INTO students (user_id, name, email, roll_number, section, face_descriptor, face_token) VALUES (?, ?, ?, ?, ?, ?, ?)', [userId, name, email, rollNumber, section, '', '']);
 
         saveDb();
-        const student = queryOne(db, 'SELECT * FROM students WHERE id = ?', [studentId]);
-        res.status(201).json(student);
+        res.json({ success: true, defaultPassword, message: 'Student registered successfully' });
     } catch (err) {
-        console.error('Add student error:', err);
+        console.error('Student registration error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });
 
-app.put('/api/teacher/students/:id', authMiddleware, requireRole('teacher'), async (req, res) => {
+app.get('/api/teacher/students', authMiddleware, requireRole('teacher'), async (req, res) => {
     try {
         const db = await getDb();
-        const { id } = req.params;
-        const { name, roll_number, section, email, usn, semester } = req.body;
-
-        const student = queryOne(db, 'SELECT * FROM students WHERE id = ?', [id]);
-        if (!student) return res.status(404).json({ error: 'Student not found' });
-
-        // Update student record
-        db.run(
-            `UPDATE students SET name = ?, roll_number = ?, section = ?, email = ?, usn = ?, semester = ? WHERE id = ?`,
-            [name || student.name, roll_number || student.roll_number, section || student.section, email || student.email, usn || student.usn, semester || student.semester, id]
-        );
-
-        // Update associated user record if exists
-        if (student.user_id) {
-            db.run(
-                `UPDATE users SET name = ?, roll_number = ?, email = ? WHERE id = ?`,
-                [name || student.name, roll_number || student.roll_number, email || student.email, student.user_id]
-            );
-        }
-
-        saveDb();
-        res.json({ success: true });
+        const { section } = req.query;
+        let students = section ? queryAll(db, 'SELECT * FROM students WHERE section = ? ORDER BY roll_number', [section]) : queryAll(db, 'SELECT * FROM students ORDER BY section, roll_number');
+        res.json(students);
     } catch (err) {
-        console.error('Update student error:', err);
+        console.error('Students list error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });
 
-app.get('/api/teacher/sessions', authMiddleware, requireRole('teacher'), async (req, res) => {
-    const db = await getDb();
-    const sessions = queryAll(db, 'SELECT * FROM sessions ORDER BY date DESC, time_slot DESC');
-    res.json(sessions);
-});
-
-app.post('/api/teacher/sessions', authMiddleware, requireRole('teacher'), async (req, res) => {
+app.post('/api/teacher/session', authMiddleware, requireRole('teacher'), async (req, res) => {
     try {
         const db = await getDb();
-        const { subject, section, date, time_slot, room } = req.body;
-
-        if (!subject || !date) {
-            return res.status(400).json({ error: 'Subject and date are required' });
+        const { subject, section, date, timeSlot, room } = req.body;
+        if (!subject || !section || !date || !timeSlot) {
+            return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        db.run(
-            `INSERT INTO sessions (teacher_name, subject, section, date, time_slot, room, teacher_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [req.user.name || 'Teacher', subject, section || '', date, time_slot || '', room || '', req.user.id]
-        );
-        const sessionId = db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+        db.run('INSERT INTO sessions (teacher_id, subject, section, date, time_slot, room, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [req.user.id, subject, section, date, timeSlot, room || '', new Date().toISOString()]);
+        const sessionId = db.exec('SELECT last_insert_rowid() as id')[0].values[0][0];
         saveDb();
-
-        const session = queryOne(db, 'SELECT * FROM sessions WHERE id = ?', [sessionId]);
-        res.status(201).json(session);
+        res.json({ success: true, sessionId });
     } catch (err) {
-        console.error('Create session error:', err);
+        console.error('Session creation error:', err);
         res.status(500).json({ error: 'Server error' });
     }
-});
-
-app.get('/api/teacher/attendance/:sessionId', authMiddleware, requireRole('teacher'), async (req, res) => {
-    const db = await getDb();
-    const records = queryAll(db,
-        `SELECT a.*, s.name as student_name, s.roll_number
-     FROM attendance a
-     JOIN students s ON a.student_id = s.id
-     WHERE a.session_id = ?
-     ORDER BY s.roll_number`,
-        [req.params.sessionId]
-    );
-    res.json(records);
 });
 
 app.post('/api/teacher/attendance', authMiddleware, requireRole('teacher'), async (req, res) => {
     try {
         const db = await getDb();
-        const { session_id, records } = req.body;
+        const { sessionId, studentId, status } = req.body;
+        if (!sessionId || !studentId || !status) return res.status(400).json({ error: 'Missing required fields' });
 
-        if (!session_id || !records || !Array.isArray(records)) {
-            return res.status(400).json({ error: 'session_id and records array required' });
-        }
-
-        // Delete existing attendance for this session
-        db.run('DELETE FROM attendance WHERE session_id = ?', [session_id]);
-
-        // Insert new records
-        for (const r of records) {
-            db.run(
-                'INSERT INTO attendance (session_id, student_id, status) VALUES (?, ?, ?)',
-                [session_id, r.student_id, r.status || 'Absent']
-            );
+        const existing = queryOne(db, 'SELECT * FROM attendance WHERE session_id = ? AND student_id = ?', [sessionId, studentId]);
+        if (existing) {
+            db.run('UPDATE attendance SET status = ?, marked_at = ? WHERE session_id = ? AND student_id = ?', [status, new Date().toISOString(), sessionId, studentId]);
+        } else {
+            db.run('INSERT INTO attendance (session_id, student_id, status, marked_at) VALUES (?, ?, ?, ?)', [sessionId, studentId, status, new Date().toISOString()]);
         }
 
         saveDb();
-        res.json({ success: true, count: records.length });
+        res.json({ success: true });
     } catch (err) {
-        console.error('Mark attendance error:', err);
+        console.error('Attendance marking error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/teacher/reports', authMiddleware, requireRole('teacher'), async (req, res) => {
+    try {
+        const db = await getDb();
+        const { section, subject, studentId } = req.query;
+
+        let query = `SELECT s.name, s.roll_number, s.section, COUNT(a.id) as total_classes, SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as classes_attended FROM students s LEFT JOIN attendance a ON s.id = a.student_id LEFT JOIN sessions sess ON a.session_id = sess.id WHERE 1=1`;
+        const params = [];
+
+        if (section) { query += ' AND s.section = ?'; params.push(section); }
+        if (subject) { query += ' AND sess.subject = ?'; params.push(subject); }
+        if (studentId) { query += ' AND s.id = ?'; params.push(studentId); }
+
+        query += ' GROUP BY s.id ORDER BY s.section, s.roll_number';
+        const report = queryAll(db, query, params).map(r => ({ ...r, percentage: r.total_classes > 0 ? Math.round((r.classes_attended / r.total_classes) * 100) : 0 }));
+        res.json(report);
+    } catch (err) {
+        console.error('Reports error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/teacher/upload-photo', authMiddleware, requireRole('teacher'), upload.single('photo'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        const { studentId } = req.body;
+        if (!studentId) { fs.unlinkSync(req.file.path); return res.status(400).json({ error: 'Student ID required' }); }
+
+        const db = await getDb();
+        const photoUrl = `/uploads/${req.file.filename}`;
+        db.run('UPDATE students SET photo_url = ? WHERE id = ?', [photoUrl, studentId]);
+        saveDb();
+        res.json({ success: true, photoUrl });
+    } catch (err) {
+        console.error('Photo upload error:', err);
+        if (req.file) fs.unlinkSync(req.file.path);
         res.status(500).json({ error: 'Server error' });
     }
 });
 
 // ─── Student Routes ──────────────────────────────────────────
-app.get('/api/student/profile', authMiddleware, requireRole('student'), async (req, res) => {
-    const db = await getDb();
-    const student = queryOne(db, 'SELECT * FROM students WHERE user_id = ?', [req.user.id]);
-    if (!student) return res.status(404).json({ error: 'Student record not found' });
-    res.json(student);
-});
-
-app.put('/api/student/profile', authMiddleware, requireRole('student'), async (req, res) => {
-    try {
-        const db = await getDb();
-        const { usn, semester } = req.body;
-        db.run(
-            'UPDATE students SET usn = ?, semester = ? WHERE user_id = ?',
-            [usn || '', semester || '', req.user.id]
-        );
-        saveDb();
-        const student = queryOne(db, 'SELECT * FROM students WHERE user_id = ?', [req.user.id]);
-        res.json(student);
-    } catch (err) {
-        console.error('Update profile error:', err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-app.post('/api/student/profile/photo', authMiddleware, requireRole('student'), upload.single('photo'), async (req, res) => {
-    try {
-        const db = await getDb();
-        if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
-
-        const photoUrl = `/uploads/${req.file.filename}`;
-        db.run('UPDATE students SET photo_url = ? WHERE user_id = ?', [photoUrl, req.user.id]);
-        saveDb();
-        res.json({ photo_url: photoUrl });
-    } catch (err) {
-        console.error('Photo upload error:', err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
-app.post('/api/student/profile/photo-url', authMiddleware, requireRole('student'), async (req, res) => {
-    try {
-        const db = await getDb();
-        const { photo_url } = req.body;
-        if (!photo_url) return res.status(400).json({ error: 'Photo URL is required' });
-
-        // Basic URL validation
-        if (!photo_url.startsWith('http')) {
-            return res.status(400).json({ error: 'Invalid URL. Must start with http:// or https://' });
-        }
-
-        db.run('UPDATE students SET photo_url = ? WHERE user_id = ?', [photo_url, req.user.id]);
-        saveDb();
-        res.json({ photo_url });
-    } catch (err) {
-        console.error('Photo URL update error:', err);
-        res.status(500).json({ error: 'Server error' });
-    }
-});
-
 app.get('/api/student/dashboard', authMiddleware, requireRole('student'), async (req, res) => {
     try {
         const db = await getDb();
         const student = queryOne(db, 'SELECT * FROM students WHERE user_id = ?', [req.user.id]);
         if (!student) return res.status(404).json({ error: 'Student record not found' });
 
-        // Overall attendance
-        const totalRecords = queryAll(db,
-            'SELECT COUNT(*) as total FROM attendance WHERE student_id = ?',
-            [student.id]
-        );
-        const presentRecords = queryAll(db,
-            "SELECT COUNT(*) as present FROM attendance WHERE student_id = ? AND status IN ('Present','Late')",
-            [student.id]
-        );
-        const total = totalRecords[0]?.total || 0;
-        const present = presentRecords[0]?.present || 0;
-        const overallPercentage = total > 0 ? Math.round((present / total) * 100) : 0;
+        const total = queryAll(db, 'SELECT COUNT(*) as count FROM attendance WHERE student_id = ?', [student.id])[0].count;
+        const present = queryAll(db, 'SELECT COUNT(*) as count FROM attendance WHERE student_id = ? AND status = ?', [student.id, 'present'])[0].count;
+        const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
 
-        // Last 7 days trend
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        const sevenDaysStr = sevenDaysAgo.toISOString().split('T')[0];
+        const subjectStats = queryAll(db, `SELECT sess.subject, COUNT(a.id) as total, SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present FROM attendance a JOIN sessions sess ON a.session_id = sess.id WHERE a.student_id = ? GROUP BY sess.subject`, [student.id]);
+        const shortageSubjects = subjectStats.filter(s => s.total > 0 && (s.present / s.total) < 0.75).map(s => s.subject);
 
-        const recentTotal = queryAll(db,
-            `SELECT COUNT(*) as total FROM attendance a JOIN sessions s ON a.session_id = s.id
-       WHERE a.student_id = ? AND s.date >= ?`,
-            [student.id, sevenDaysStr]
-        );
-        const recentPresent = queryAll(db,
-            `SELECT COUNT(*) as present FROM attendance a JOIN sessions s ON a.session_id = s.id
-       WHERE a.student_id = ? AND s.date >= ? AND a.status IN ('Present','Late')`,
-            [student.id, sevenDaysStr]
-        );
-        const rTotal = recentTotal[0]?.total || 0;
-        const rPresent = recentPresent[0]?.present || 0;
-        const trendScore = rTotal > 0 ? Math.round((rPresent / rTotal) * 100) : 0;
+        const last7Days = queryAll(db, `SELECT DATE(sess.date) as date, SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present, COUNT(a.id) as total FROM attendance a JOIN sessions sess ON a.session_id = sess.id WHERE a.student_id = ? AND sess.date >= date('now', '-7 days') GROUP BY DATE(sess.date) ORDER BY date DESC`, [student.id]);
 
-        let trendComment = 'No recent data';
-        if (rTotal > 0) {
-            if (trendScore >= overallPercentage + 5) trendComment = '📈 Trending up this week!';
-            else if (trendScore <= overallPercentage - 5) trendComment = '📉 Attendance dipping this week';
-            else trendComment = '➡️ Consistent attendance';
+        let trendScore = 0; let trendComment = 'Not enough data';
+        if (last7Days.length >= 3) {
+            const recent = last7Days.slice(0, 3);
+            const avgRecent = recent.reduce((sum, d) => sum + (d.present / d.total), 0) / recent.length;
+            if (avgRecent > 0.9) { trendScore = 2; trendComment = 'Excellent attendance streak!'; }
+            else if (avgRecent > 0.75) { trendScore = 1; trendComment = 'Good attendance.'; }
+            else if (avgRecent > 0.5) { trendScore = 0; trendComment = 'Needs improvement.'; }
+            else { trendScore = -1; trendComment = 'Warning: Low attendance.'; }
         }
 
-        // Shortage analysis by subject (< 75% threshold)
-        const subjectStats = queryAll(db,
-            `SELECT s.subject,
-              COUNT(*) as total,
-              SUM(CASE WHEN a.status IN ('Present','Late') THEN 1 ELSE 0 END) as present
-       FROM attendance a
-       JOIN sessions s ON a.session_id = s.id
-       WHERE a.student_id = ?
-       GROUP BY s.subject`,
-            [student.id]
-        );
-
-        const shortageSubjects = subjectStats
-            .map(s => ({ subject: s.subject, percentage: Math.round((s.present / s.total) * 100), total: s.total, present: s.present }))
-            .filter(s => s.percentage < 75);
-
-        res.json({
-            overallPercentage,
-            totalClasses: total,
-            classesAttended: present,
-            trendScore,
-            trendComment,
-            shortageSubjects,
-            subjectStats: subjectStats.map(s => ({
-                subject: s.subject,
-                percentage: Math.round((s.present / s.total) * 100),
-                total: s.total,
-                present: s.present
-            }))
-        });
+        res.json({ name: student.name, rollNumber: student.roll_number, section: student.section, photoUrl: student.photo_url || null, attendancePercentage: percentage, totalClasses: total, classesAttended: present, trendScore, trendComment, shortageSubjects, subjectStats: subjectStats.map(s => ({ subject: s.subject, percentage: Math.round((s.present / s.total) * 100), total: s.total, present: s.present })) });
     } catch (err) {
         console.error('Dashboard error:', err);
         res.status(500).json({ error: 'Server error' });
@@ -536,46 +445,11 @@ app.get('/api/student/attendance', authMiddleware, requireRole('student'), async
         const { period } = req.query;
         const today = new Date();
         let dateFilter = '';
+        if (period === 'today') dateFilter = today.toISOString().split('T')[0];
+        else if (period === 'week') { const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7); dateFilter = weekAgo.toISOString().split('T')[0]; }
+        else if (period === 'month') { const monthAgo = new Date(today); monthAgo.setMonth(monthAgo.getMonth() - 1); dateFilter = monthAgo.toISOString().split('T')[0]; }
 
-        if (period === 'today') {
-            dateFilter = today.toISOString().split('T')[0];
-        } else if (period === 'week') {
-            const weekAgo = new Date(today);
-            weekAgo.setDate(weekAgo.getDate() - 7);
-            dateFilter = weekAgo.toISOString().split('T')[0];
-        } else if (period === 'month') {
-            const monthAgo = new Date(today);
-            monthAgo.setMonth(monthAgo.getMonth() - 1);
-            dateFilter = monthAgo.toISOString().split('T')[0];
-        }
-
-        let records;
-        if (period === 'today') {
-            records = queryAll(db,
-                `SELECT a.status, a.marked_at, s.subject, s.date, s.time_slot, s.room
-         FROM attendance a JOIN sessions s ON a.session_id = s.id
-         WHERE a.student_id = ? AND s.date = ?
-         ORDER BY s.date DESC, s.time_slot DESC`,
-                [student.id, dateFilter]
-            );
-        } else if (dateFilter) {
-            records = queryAll(db,
-                `SELECT a.status, a.marked_at, s.subject, s.date, s.time_slot, s.room
-         FROM attendance a JOIN sessions s ON a.session_id = s.id
-         WHERE a.student_id = ? AND s.date >= ?
-         ORDER BY s.date DESC, s.time_slot DESC`,
-                [student.id, dateFilter]
-            );
-        } else {
-            records = queryAll(db,
-                `SELECT a.status, a.marked_at, s.subject, s.date, s.time_slot, s.room
-         FROM attendance a JOIN sessions s ON a.session_id = s.id
-         WHERE a.student_id = ?
-         ORDER BY s.date DESC, s.time_slot DESC`,
-                [student.id]
-            );
-        }
-
+        let records = period === 'today' ? queryAll(db, `SELECT a.status, a.marked_at, s.subject, s.date, s.time_slot, s.room FROM attendance a JOIN sessions s ON a.session_id = s.id WHERE a.student_id = ? AND s.date = ? ORDER BY s.date DESC, s.time_slot DESC`, [student.id, dateFilter]) : (dateFilter ? queryAll(db, `SELECT a.status, a.marked_at, s.subject, s.date, s.time_slot, s.room FROM attendance a JOIN sessions s ON a.session_id = s.id WHERE a.student_id = ? AND s.date >= ? ORDER BY s.date DESC, s.time_slot DESC`, [student.id, dateFilter]) : queryAll(db, `SELECT a.status, a.marked_at, s.subject, s.date, s.time_slot, s.room FROM attendance a JOIN sessions s ON a.session_id = s.id WHERE a.student_id = ? ORDER BY s.date DESC, s.time_slot DESC`, [student.id]));
         res.json(records);
     } catch (err) {
         console.error('Attendance records error:', err);
@@ -590,12 +464,7 @@ app.get('/api/student/upcoming', authMiddleware, requireRole('student'), async (
         if (!student) return res.status(404).json({ error: 'Student record not found' });
 
         const today = new Date().toISOString().split('T')[0];
-        const classes = queryAll(db,
-            `SELECT * FROM upcoming_classes
-       WHERE section = ? AND date >= ?
-       ORDER BY date ASC, time_slot ASC`,
-            [student.section, today]
-        );
+        const classes = queryAll(db, `SELECT * FROM upcoming_classes WHERE section = ? AND date >= ? ORDER BY date ASC, time_slot ASC`, [student.section, today]);
         res.json(classes);
     } catch (err) {
         console.error('Upcoming classes error:', err);
@@ -607,27 +476,15 @@ app.post('/api/student/face-register', authMiddleware, requireRole('student'), a
     try {
         const db = await getDb();
         const { descriptor } = req.body;
-        if (!descriptor || !Array.isArray(descriptor)) {
-            return res.status(400).json({ error: 'Invalid descriptor' });
-        }
+        if (!descriptor || !Array.isArray(descriptor)) return res.status(400).json({ error: 'Invalid descriptor' });
 
-        // Check if this face is already registered to another user
         const otherStudents = queryAll(db, `SELECT s.face_descriptor, s.name, u.email FROM students s JOIN users u ON s.user_id = u.id WHERE s.user_id != ? AND s.face_descriptor != ''`, [req.user.id]);
-
-        console.log(`[Auth] Checking face uniqueness against ${otherStudents.length} other registered students`);
-
         for (const s of otherStudents) {
             try {
                 const storedDesc = JSON.parse(s.face_descriptor);
                 const distance = euclideanDistance(descriptor, storedDesc);
-                console.log(`[Auth] Distance to ${s.email}: ${distance.toFixed(4)}`);
-                if (distance < 0.62) {
-                    console.log(`[Auth] Duplicate face detected: Current student too similar to ${s.email} (distance: ${distance.toFixed(4)})`);
-                    return res.status(409).json({ error: 'This face is already registered to another account' });
-                }
-            } catch (e) {
-                console.warn(`[Auth] Could not parse face_descriptor for student: ${s.email}`);
-            }
+                if (distance < 0.62) return res.status(409).json({ error: 'This face is already registered to another account' });
+            } catch (e) { console.warn(`[Auth] Could not parse face_descriptor for student: ${s.email}`); }
         }
 
         db.run('UPDATE students SET face_descriptor = ? WHERE user_id = ?', [JSON.stringify(descriptor), req.user.id]);
@@ -645,14 +502,32 @@ app.get('/', (req, res) => {
 });
 
 // ─── Start Server ────────────────────────────────────────────
+let server;
 async function start() {
     await getDb();
-    app.listen(PORT, () => {
-        console.log(`\n🚀 SmartTrack AI server running at http://localhost:${PORT}\n`);
+    server = app.listen(PORT, () => {
+        console.log(`\n🚀 SmartTrack AI server running at http://localhost:${PORT}`);
+        console.log(`📊 Environment: ${NODE_ENV}`);
+        console.log(`💾 Database: SQLite (smarttrack.db)\n`);
     });
 }
 
-start().catch(err => {
-    console.error('Failed to start server:', err);
-    process.exit(1);
-});
+function gracefulShutdown(signal) {
+    console.log(`\n${signal} received. Starting graceful shutdown...`);
+    if (server) {
+        server.close(() => {
+            console.log('✅ HTTP server closed');
+            try { saveDb(); console.log('✅ Database saved successfully'); } catch (err) { console.error('❌ Error saving database:', err); }
+            console.log('👋 Graceful shutdown complete\n');
+            process.exit(0);
+        });
+        setTimeout(() => { console.error('⚠️  Forced shutdown after timeout'); process.exit(1); }, 10000);
+    } else { process.exit(0); }
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('uncaughtException', (err) => { console.error('❌ Uncaught Exception:', err); gracefulShutdown('UNCAUGHT_EXCEPTION'); });
+process.on('unhandledRejection', (reason, promise) => { console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason); gracefulShutdown('UNHANDLED_REJECTION'); });
+
+start().catch(err => { console.error('❌ Failed to start server:', err); process.exit(1); });
